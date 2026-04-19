@@ -4,7 +4,7 @@
 
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from './messages.js'
 import type { ModelConfig, ModelProvider } from './provider.js'
-import type { ToolRegistry, ToolContext } from './tools.js'
+import type { ToolRegistry } from './tools.js'
 import { runHook, type Hooks } from './hooks.js'
 
 export type RunInnerLoopInput = {
@@ -37,30 +37,24 @@ export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLo
   let config = modelConfig
 
   while (iteration < maxIterations) {
-    const harnessOverrides = await runHook(hooks.beforeModelCall, {
-      messages,
-      iteration,
-      runId,
-    })
-    if (harnessOverrides) {
-      messages = harnessOverrides.messages
-      if (harnessOverrides.modelConfig) config = harnessOverrides.modelConfig
-      if (harnessOverrides.abort) {
-        return {
-          status: 'aborted',
-          messages,
-          iterations: iteration,
-          abortReason: harnessOverrides.abortReason,
-        }
+    // Phase 1 — apply harness overrides (beforeModelCall hook)
+    const harnessOverrides = await runHook(hooks.beforeModelCall, { messages, iteration, runId })
+    if (harnessOverrides?.abort) {
+      return {
+        status: 'aborted',
+        messages: harnessOverrides.messages,
+        iterations: iteration,
+        abortReason: harnessOverrides.abortReason,
       }
     }
+    messages = harnessOverrides?.messages ?? messages
+    config = harnessOverrides?.modelConfig ?? config
 
+    // Phase 2 — call the model, consume the stream, capture the terminal message
     let assistantMessage: AssistantMessage | undefined
     try {
       for await (const event of provider.stream(messages, toolRegistry.toSpecs(), config)) {
-        if (event.type === 'message_end') {
-          assistantMessage = event.message
-        }
+        if (event.type === 'message_end') assistantMessage = event.message
       }
     } catch (err) {
       return {
@@ -70,7 +64,6 @@ export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLo
         error: err instanceof Error ? err : new Error(String(err)),
       }
     }
-
     if (!assistantMessage) {
       return {
         status: 'errored',
@@ -83,42 +76,32 @@ export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLo
     messages = [...messages, assistantMessage]
     iteration += 1
 
-    if (assistantMessage.stopReason === 'end_turn') {
-      return {
-        status: 'completed',
-        finalMessage: assistantMessage,
-        messages,
-        iterations: iteration,
-      }
-    }
+    // Phase 3 — route on stop reason
+    switch (assistantMessage.stopReason) {
+      case 'end_turn':
+      case 'max_tokens':
+        return { status: 'completed', finalMessage: assistantMessage, messages, iterations: iteration }
 
-    if (assistantMessage.stopReason === 'error' || assistantMessage.stopReason === 'safety') {
-      return {
-        status: 'errored',
-        finalMessage: assistantMessage,
-        messages,
-        iterations: iteration,
-        error: new Error(`stopReason=${assistantMessage.stopReason}`),
-      }
-    }
+      case 'error':
+      case 'safety':
+        return {
+          status: 'errored',
+          finalMessage: assistantMessage,
+          messages,
+          iterations: iteration,
+          error: new Error(`stopReason=${assistantMessage.stopReason}`),
+        }
 
-    if (assistantMessage.stopReason === 'max_tokens') {
-      return {
-        status: 'completed',
-        finalMessage: assistantMessage,
-        messages,
-        iterations: iteration,
+      case 'tool_use': {
+        const toolResults = await executeToolCalls({
+          calls: assistantMessage.toolCalls,
+          toolRegistry,
+          hooks,
+          runId,
+        })
+        messages = [...messages, ...toolResults]
+        break
       }
-    }
-
-    if (assistantMessage.stopReason === 'tool_use') {
-      const toolResults = await executeToolCalls({
-        calls: assistantMessage.toolCalls,
-        toolRegistry,
-        hooks,
-        runId,
-      })
-      messages = [...messages, ...toolResults]
     }
   }
 
@@ -142,26 +125,27 @@ async function executeToolCalls(args: {
   for (const call of calls) {
     const harnessDecision = await runHook(hooks.beforeToolCall, { toolCall: call, runId })
 
-    if (harnessDecision?.decision === 'deny') {
-      results.push({
-        role: 'tool',
-        toolCallId: call.id,
-        content: `Denied: ${harnessDecision.reason}`,
-        isError: true,
-      })
-      continue
+    // Short-circuit paths: the harness said don't actually execute
+    switch (harnessDecision?.decision) {
+      case 'deny':
+        results.push({
+          role: 'tool',
+          toolCallId: call.id,
+          content: `Denied: ${harnessDecision.reason}`,
+          isError: true,
+        })
+        continue
+      case 'short-circuit':
+        results.push({
+          role: 'tool',
+          toolCallId: call.id,
+          content: harnessDecision.result,
+          isError: false,
+        })
+        continue
     }
 
-    if (harnessDecision?.decision === 'short-circuit') {
-      results.push({
-        role: 'tool',
-        toolCallId: call.id,
-        content: harnessDecision.result,
-        isError: false,
-      })
-      continue
-    }
-
+    // Execute path
     const effectiveInput = harnessDecision?.decision === 'execute' && harnessDecision.input !== undefined
       ? harnessDecision.input
       : call.input
@@ -177,13 +161,12 @@ async function executeToolCalls(args: {
       continue
     }
 
-    const ctx: ToolContext = { runId }
     const started = Date.now()
     let resultContent: string
     let isError = false
     try {
       const validated = tool.validate(effectiveInput)
-      resultContent = await tool.handler(validated, ctx)
+      resultContent = await tool.handler(validated, { runId })
     } catch (err) {
       isError = true
       resultContent = err instanceof Error ? err.message : String(err)
@@ -197,14 +180,12 @@ async function executeToolCalls(args: {
       durationMs,
       runId,
     })
-    const finalContent = harnessTransform?.result ?? resultContent
-    const finalIsError = harnessTransform?.isError ?? isError
 
     results.push({
       role: 'tool',
       toolCallId: call.id,
-      content: finalContent,
-      isError: finalIsError,
+      content: harnessTransform?.result ?? resultContent,
+      isError: harnessTransform?.isError ?? isError,
     })
   }
 
