@@ -76,7 +76,6 @@ async function main(): Promise<void> {
   }
 
   const sessionDir = join(cwd(), '.marco')
-  const historyMessages = loadSession(sessionDir, sessionId)
 
   // Single readline for the whole session — used by the REPL loop AND by
   // the permission hook. Creating a nested readline per prompt would
@@ -87,8 +86,12 @@ async function main(): Promise<void> {
 
   const hooks: Hooks = {
     onRunStart: async ({ messages }) => {
-      const hydrated: Message[] = historyMessages.length
-        ? [{ role: 'system', text: SYSTEM_PROMPT }, ...historyMessages, ...messages]
+      // Re-read the session file every turn so new turns see everything the
+      // previous turns persisted. Capturing history once at startup would
+      // leave every turn hydrating from a stale snapshot.
+      const history = loadSession(sessionDir, sessionId!)
+      const hydrated: Message[] = history.length
+        ? [{ role: 'system', text: SYSTEM_PROMPT }, ...history, ...messages]
         : [{ role: 'system', text: SYSTEM_PROMPT }, ...messages]
       for (const msg of messages) {
         appendMessage(sessionDir, sessionId!, msg)
