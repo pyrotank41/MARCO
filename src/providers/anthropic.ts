@@ -1,10 +1,19 @@
 // MARCO — AnthropicProvider. Normalizes Anthropic SDK events to MARCO's canonical ChunkEvent shape.
+//
+// Real SDK event flow for a streaming message:
+//   message_start          → carries initial message shell + input_tokens
+//   content_block_start    → per block (text or tool_use); tool_use has id/name
+//   content_block_delta    → text_delta or input_json_delta
+//   content_block_stop     → block terminator (index only, no payload)
+//   message_delta          → carries final stop_reason + final output_tokens
+//   message_stop           → terminator only — NO message payload
+//
+// We accumulate state across these events and yield a single `message_end`
+// ChunkEvent when `message_stop` fires.
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { ChunkEvent, ModelConfig, ModelProvider, ToolSpec } from '../provider.js'
-import type {
-  AssistantMessage, Message, StopReason, ToolCall, Usage,
-} from '../messages.js'
+import type { Message, StopReason, ToolCall } from '../messages.js'
 
 export interface AnthropicMessagesClient {
   messages: {
@@ -25,6 +34,12 @@ export interface AnthropicMessagesClient {
 export type AnthropicProviderOptions = {
   apiKey?: string
   client?: AnthropicMessagesClient
+}
+
+type ToolCallBuilder = {
+  id: string
+  name: string
+  inputJsonParts: string[]
 }
 
 export class AnthropicProvider implements ModelProvider {
@@ -58,44 +73,99 @@ export class AnthropicProvider implements ModelProvider {
       })),
     })
 
-    // Stream-local state: track the most recent tool block id so input_json_delta
-    // and content_block_stop events can be matched back to their tool call.
-    let lastToolId: string | undefined
+    let accumulatedText: string | undefined
+    const accumulatedToolCalls: ToolCall[] = []
+    const toolCallBuilders = new Map<number, ToolCallBuilder>()
+    let stopReason = 'end_turn'
+    let inputTokens = 0
+    let outputTokens = 0
 
     for await (const rawEvent of sdkStream) {
       const event = rawEvent as Record<string, unknown>
+
       switch (event.type) {
+        case 'message_start': {
+          const msg = event.message as {
+            usage?: { input_tokens?: number; output_tokens?: number }
+          } | undefined
+          if (msg?.usage?.input_tokens !== undefined) inputTokens = msg.usage.input_tokens
+          if (msg?.usage?.output_tokens !== undefined) outputTokens = msg.usage.output_tokens
+          break
+        }
+
         case 'content_block_start': {
-          const block = event.content_block as { type: string; id?: string; name?: string }
+          const index = event.index as number
+          const block = event.content_block as {
+            type: string
+            id?: string
+            name?: string
+          }
           if (block.type === 'tool_use' && block.id && block.name) {
-            lastToolId = block.id
+            toolCallBuilders.set(index, { id: block.id, name: block.name, inputJsonParts: [] })
             yield { type: 'tool_call_start', id: block.id, name: block.name }
           }
           break
         }
+
         case 'content_block_delta': {
-          const delta = event.delta as { type: string; text?: string; partial_json?: string }
+          const index = event.index as number
+          const delta = event.delta as {
+            type: string
+            text?: string
+            partial_json?: string
+          }
           if (delta.type === 'text_delta' && delta.text !== undefined) {
+            accumulatedText = (accumulatedText ?? '') + delta.text
             yield { type: 'text_delta', text: delta.text }
-          } else if (delta.type === 'input_json_delta' && delta.partial_json !== undefined && lastToolId) {
-            yield { type: 'tool_call_delta', id: lastToolId, inputJson: delta.partial_json }
+          } else if (delta.type === 'input_json_delta' && delta.partial_json !== undefined) {
+            const builder = toolCallBuilders.get(index)
+            if (builder) {
+              builder.inputJsonParts.push(delta.partial_json)
+              yield { type: 'tool_call_delta', id: builder.id, inputJson: delta.partial_json }
+            }
           }
           break
         }
+
         case 'content_block_stop': {
-          if (lastToolId) {
-            yield { type: 'tool_call_end', id: lastToolId }
-            lastToolId = undefined
+          const index = event.index as number
+          const builder = toolCallBuilders.get(index)
+          if (builder) {
+            yield { type: 'tool_call_end', id: builder.id }
+            const inputJson = builder.inputJsonParts.join('')
+            let input: unknown = {}
+            if (inputJson.trim()) {
+              try {
+                input = JSON.parse(inputJson)
+              } catch {
+                input = {}
+              }
+            }
+            accumulatedToolCalls.push({ id: builder.id, name: builder.name, input })
+            toolCallBuilders.delete(index)
           }
           break
         }
+
+        case 'message_delta': {
+          const delta = event.delta as { stop_reason?: string } | undefined
+          if (delta?.stop_reason) stopReason = delta.stop_reason
+          const usage = event.usage as { output_tokens?: number } | undefined
+          if (usage?.output_tokens !== undefined) outputTokens = usage.output_tokens
+          break
+        }
+
         case 'message_stop': {
-          const sdkMessage = event.message as {
-            content: Array<Record<string, unknown>>
-            stop_reason: string
-            usage: { input_tokens: number; output_tokens: number }
+          yield {
+            type: 'message_end',
+            message: {
+              role: 'assistant',
+              text: accumulatedText,
+              toolCalls: accumulatedToolCalls,
+              stopReason: mapStopReason(stopReason),
+              usage: { inputTokens, outputTokens },
+            },
           }
-          yield { type: 'message_end', message: toAssistantMessage(sdkMessage) }
           break
         }
       }
@@ -144,37 +214,6 @@ function toAnthropicMessages(
   return {
     system: systemParts.length ? systemParts.join('\n\n') : undefined,
     apiMessages,
-  }
-}
-
-function toAssistantMessage(sdk: {
-  content: Array<Record<string, unknown>>
-  stop_reason: string
-  usage: { input_tokens: number; output_tokens: number }
-}): AssistantMessage {
-  const toolCalls: ToolCall[] = []
-  let text: string | undefined
-  for (const block of sdk.content) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      text = (text ?? '') + block.text
-    } else if (block.type === 'tool_use') {
-      toolCalls.push({
-        id: String(block.id),
-        name: String(block.name),
-        input: block.input ?? {},
-      })
-    }
-  }
-  const usage: Usage = {
-    inputTokens: sdk.usage.input_tokens,
-    outputTokens: sdk.usage.output_tokens,
-  }
-  return {
-    role: 'assistant',
-    text,
-    toolCalls,
-    stopReason: mapStopReason(sdk.stop_reason),
-    usage,
   }
 }
 
