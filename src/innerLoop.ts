@@ -37,20 +37,20 @@ export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLo
   let config = modelConfig
 
   while (iteration < maxIterations) {
-    const beforeOut = await runHook(hooks.beforeModelCall, {
+    const harnessOverrides = await runHook(hooks.beforeModelCall, {
       messages,
       iteration,
       runId,
     })
-    if (beforeOut) {
-      messages = beforeOut.messages
-      if (beforeOut.modelConfig) config = beforeOut.modelConfig
-      if (beforeOut.abort) {
+    if (harnessOverrides) {
+      messages = harnessOverrides.messages
+      if (harnessOverrides.modelConfig) config = harnessOverrides.modelConfig
+      if (harnessOverrides.abort) {
         return {
           status: 'aborted',
           messages,
           iterations: iteration,
-          abortReason: beforeOut.abortReason,
+          abortReason: harnessOverrides.abortReason,
         }
       }
     }
@@ -140,30 +140,30 @@ async function executeToolCalls(args: {
   const results: ToolResultMessage[] = []
 
   for (const call of calls) {
-    const decision = await runHook(hooks.beforeToolCall, { toolCall: call, runId })
+    const harnessDecision = await runHook(hooks.beforeToolCall, { toolCall: call, runId })
 
-    if (decision?.decision === 'deny') {
+    if (harnessDecision?.decision === 'deny') {
       results.push({
         role: 'tool',
         toolCallId: call.id,
-        content: `Denied: ${decision.reason}`,
+        content: `Denied: ${harnessDecision.reason}`,
         isError: true,
       })
       continue
     }
 
-    if (decision?.decision === 'short-circuit') {
+    if (harnessDecision?.decision === 'short-circuit') {
       results.push({
         role: 'tool',
         toolCallId: call.id,
-        content: decision.result,
+        content: harnessDecision.result,
         isError: false,
       })
       continue
     }
 
-    const effectiveInput = decision?.decision === 'execute' && decision.input !== undefined
-      ? decision.input
+    const effectiveInput = harnessDecision?.decision === 'execute' && harnessDecision.input !== undefined
+      ? harnessDecision.input
       : call.input
 
     const tool = toolRegistry.get(call.name)
@@ -190,15 +190,15 @@ async function executeToolCalls(args: {
     }
     const durationMs = Date.now() - started
 
-    const after = await runHook(hooks.afterToolResult, {
+    const harnessTransform = await runHook(hooks.afterToolResult, {
       toolCall: call,
       result: resultContent,
       isError,
       durationMs,
       runId,
     })
-    const finalContent = after?.result ?? resultContent
-    const finalIsError = after?.isError ?? isError
+    const finalContent = harnessTransform?.result ?? resultContent
+    const finalIsError = harnessTransform?.isError ?? isError
 
     results.push({
       role: 'tool',

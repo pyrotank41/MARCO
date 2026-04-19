@@ -52,16 +52,16 @@ export class Harness {
     let messages: Message[] = [...this.initialMessages, ...triggerMessages]
     let modelConfig = this.modelConfig
 
-    const start = await runHook(this.hooks.onRunStart, {
+    const harnessStart = await runHook(this.hooks.onRunStart, {
       trigger, runId, messages, modelConfig,
     })
-    if (start) {
-      if (!start.allowed) {
+    if (harnessStart) {
+      if (!harnessStart.allowed) {
         const rejected: RunInnerLoopResult = {
           status: 'aborted',
           messages,
           iterations: 0,
-          abortReason: start.rejectReason ?? 'rejected by onRunStart',
+          abortReason: harnessStart.rejectReason ?? 'rejected by onRunStart',
         }
         await runHook(this.hooks.onRunEnd, {
           runId,
@@ -71,8 +71,8 @@ export class Harness {
         })
         return rejected
       }
-      messages = start.messages
-      if (start.modelConfig) modelConfig = start.modelConfig
+      messages = harnessStart.messages
+      if (harnessStart.modelConfig) modelConfig = harnessStart.modelConfig
     }
 
     const result = await runInnerLoop({
