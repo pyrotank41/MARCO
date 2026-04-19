@@ -106,4 +106,142 @@ describe('Harness', () => {
     harness.registerTool(echoTool)
     expect(harness.getTool('echo')).toBe(echoTool)
   })
+
+  // Tool-execution tests — these exercise the Harness's tool execution
+  // logic (beforeToolCall → validate → handler → afterToolResult), which
+  // used to live in the inner loop but is now correctly a harness concern.
+
+  it('denies a tool call via beforeToolCall and returns the reason as an error tool result', async () => {
+    const turn1: AssistantMessage = {
+      role: 'assistant', text: '', toolCalls: [
+        { id: 'c1', name: 'echo', input: { text: 'nope' } },
+      ],
+      stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 },
+    }
+    const turn2: AssistantMessage = {
+      role: 'assistant', text: 'ok sorry', toolCalls: [],
+      stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 1 },
+    }
+    const provider = new MockProvider([
+      [{ type: 'message_end', message: turn1 }],
+      [{ type: 'message_end', message: turn2 }],
+    ])
+    const hooks: Hooks = {
+      beforeToolCall: async ({ toolCall }) =>
+        toolCall.name === 'echo'
+          ? { decision: 'deny', reason: 'not allowed' }
+          : { decision: 'execute' },
+    }
+    const harness = new Harness({
+      provider,
+      modelConfig: { model: 'mock' },
+      hooks,
+      tools: [echoTool],
+    })
+    const result = await harness.run({ kind: 'user_message', text: 'nope' })
+
+    const toolMsg = result.messages[2]
+    expect(toolMsg.role).toBe('tool')
+    if (toolMsg.role === 'tool') {
+      expect(toolMsg.isError).toBe(true)
+      expect(toolMsg.content).toContain('not allowed')
+    }
+  })
+
+  it('short-circuits a tool call and returns the provided result', async () => {
+    const turn1: AssistantMessage = {
+      role: 'assistant', text: '', toolCalls: [
+        { id: 'c1', name: 'echo', input: { text: 'x' } },
+      ],
+      stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 },
+    }
+    const turn2: AssistantMessage = {
+      role: 'assistant', text: 'done', toolCalls: [],
+      stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 1 },
+    }
+    const provider = new MockProvider([
+      [{ type: 'message_end', message: turn1 }],
+      [{ type: 'message_end', message: turn2 }],
+    ])
+    const hooks: Hooks = {
+      beforeToolCall: async () => ({ decision: 'short-circuit', result: 'CACHED' }),
+    }
+    const harness = new Harness({
+      provider,
+      modelConfig: { model: 'mock' },
+      hooks,
+      tools: [echoTool],
+    })
+    const result = await harness.run({ kind: 'user_message', text: 'x' })
+
+    const toolMsg = result.messages[2]
+    expect(toolMsg.role).toBe('tool')
+    if (toolMsg.role === 'tool') {
+      expect(toolMsg.isError).toBe(false)
+      expect(toolMsg.content).toBe('CACHED')
+    }
+  })
+
+  it('returns an error tool result when the model calls an unknown tool', async () => {
+    const turn1: AssistantMessage = {
+      role: 'assistant', text: '', toolCalls: [
+        { id: 'c1', name: 'unknown_tool', input: {} },
+      ],
+      stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 },
+    }
+    const turn2: AssistantMessage = {
+      role: 'assistant', text: 'oh well', toolCalls: [],
+      stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 1 },
+    }
+    const provider = new MockProvider([
+      [{ type: 'message_end', message: turn1 }],
+      [{ type: 'message_end', message: turn2 }],
+    ])
+    const harness = new Harness({
+      provider,
+      modelConfig: { model: 'mock' },
+    })
+    const result = await harness.run({ kind: 'user_message', text: '' })
+
+    const toolMsg = result.messages[2]
+    expect(toolMsg.role).toBe('tool')
+    if (toolMsg.role === 'tool') {
+      expect(toolMsg.isError).toBe(true)
+      expect(toolMsg.content).toContain('not registered')
+    }
+  })
+
+  it('runs afterToolResult after a successful tool execution and uses its transformed result', async () => {
+    const turn1: AssistantMessage = {
+      role: 'assistant', text: '', toolCalls: [
+        { id: 'c1', name: 'echo', input: { text: 'secret' } },
+      ],
+      stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 },
+    }
+    const turn2: AssistantMessage = {
+      role: 'assistant', text: 'done', toolCalls: [],
+      stopReason: 'end_turn', usage: { inputTokens: 2, outputTokens: 1 },
+    }
+    const provider = new MockProvider([
+      [{ type: 'message_end', message: turn1 }],
+      [{ type: 'message_end', message: turn2 }],
+    ])
+    const hooks: Hooks = {
+      afterToolResult: async ({ result }) => ({ result: result.replace(/secret/g, '<redacted>') }),
+    }
+    const harness = new Harness({
+      provider,
+      modelConfig: { model: 'mock' },
+      hooks,
+      tools: [echoTool],
+    })
+    const result = await harness.run({ kind: 'user_message', text: 'x' })
+
+    const toolMsg = result.messages[2]
+    expect(toolMsg.role).toBe('tool')
+    if (toolMsg.role === 'tool') {
+      expect(toolMsg.content).toBe('got <redacted>')
+      expect(toolMsg.isError).toBe(false)
+    }
+  })
 })

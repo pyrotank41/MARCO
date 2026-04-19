@@ -1,11 +1,13 @@
-// MARCO — Harness. The outer-loop orchestrator. Owns tool registry, hooks, provider, config.
+// MARCO — Harness. The outer-loop orchestrator. Owns tool registry, hooks,
+// provider, config. Also owns tool execution — the inner loop delegates
+// to this class via the `executeToolCall` closure passed into runInnerLoop.
 
 import { randomUUID } from 'node:crypto'
 import { runInnerLoop, type RunInnerLoopResult } from './innerLoop.js'
 import { ToolRegistry, type Tool } from './tools.js'
 import { runHook, type Hooks, type Trigger } from './hooks.js'
 import type { ModelConfig, ModelProvider } from './provider.js'
-import type { Message } from './messages.js'
+import type { Message, ToolCall, ToolResultMessage } from './messages.js'
 
 export type HarnessOptions = {
   provider: ModelProvider
@@ -79,8 +81,9 @@ export class Harness {
       runId,
       messages,
       provider: this.provider,
-      toolRegistry: this.toolRegistry,
-      hooks: this.hooks,
+      toolSpecs: this.toolRegistry.toSpecs(),
+      executeToolCall: (call) => this.executeToolCall(call, runId),
+      hooks: { beforeModelCall: this.hooks.beforeModelCall },
       modelConfig,
       maxIterations: this.maxIterations,
     })
@@ -95,6 +98,79 @@ export class Harness {
     })
 
     return result
+  }
+
+  /**
+   * Execute one tool call. Harness territory — the inner loop never calls
+   * this directly; it invokes the bound closure passed into runInnerLoop.
+   *
+   * Lifecycle per call: beforeToolCall hook (decide execute / deny /
+   * short-circuit) → tool.validate → tool.handler → afterToolResult hook.
+   * Errors (validation, handler throws, unknown tool) become error
+   * ToolResultMessage objects so the model can see and react.
+   */
+  private async executeToolCall(call: ToolCall, runId: string): Promise<ToolResultMessage> {
+    const harnessDecision = await runHook(this.hooks.beforeToolCall, { toolCall: call, runId })
+
+    // Short-circuit paths: harness said don't actually execute
+    switch (harnessDecision?.decision) {
+      case 'deny':
+        return {
+          role: 'tool',
+          toolCallId: call.id,
+          content: `Denied: ${harnessDecision.reason}`,
+          isError: true,
+        }
+      case 'short-circuit':
+        return {
+          role: 'tool',
+          toolCallId: call.id,
+          content: harnessDecision.result,
+          isError: false,
+        }
+    }
+
+    // Execute path
+    const effectiveInput = harnessDecision?.decision === 'execute' && harnessDecision.input !== undefined
+      ? harnessDecision.input
+      : call.input
+
+    const tool = this.toolRegistry.get(call.name)
+    if (!tool) {
+      return {
+        role: 'tool',
+        toolCallId: call.id,
+        content: `Tool "${call.name}" is not registered`,
+        isError: true,
+      }
+    }
+
+    const started = Date.now()
+    let resultContent: string
+    let isError = false
+    try {
+      const validated = tool.validate(effectiveInput)
+      resultContent = await tool.handler(validated, { runId })
+    } catch (err) {
+      isError = true
+      resultContent = err instanceof Error ? err.message : String(err)
+    }
+    const durationMs = Date.now() - started
+
+    const harnessTransform = await runHook(this.hooks.afterToolResult, {
+      toolCall: call,
+      result: resultContent,
+      isError,
+      durationMs,
+      runId,
+    })
+
+    return {
+      role: 'tool',
+      toolCallId: call.id,
+      content: harnessTransform?.result ?? resultContent,
+      isError: harnessTransform?.isError ?? isError,
+    }
   }
 }
 
