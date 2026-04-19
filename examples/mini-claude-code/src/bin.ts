@@ -91,9 +91,14 @@ async function main(): Promise<void> {
       return { allowed: true, messages: hydrated }
     },
     beforeToolCall: permissionHook,
-    onRunEnd: async ({ finalMessage }) => {
+    onRunEnd: async ({ status, finalMessage, error }) => {
       if (finalMessage) {
         appendMessage(sessionDir, sessionId!, finalMessage)
+      }
+      if (status === 'errored' && error) {
+        stdout.write(`\n[error] ${error.message}\n\n`)
+      } else if (status === 'aborted') {
+        stdout.write(`\n[aborted]\n\n`)
       }
     },
   }
