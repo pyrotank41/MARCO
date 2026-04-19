@@ -2,7 +2,9 @@
 
 **M**odel-**A**gnostic **R**untime for **C**ontrolled **O**rchestration.
 
-A small TypeScript AI agent harness. Companion code artifact to [*How AI agents work: a control flow breakdown*](https://karankochar.dev/posts/how-ai-agents-work-a-control-flow-breakdown).
+A small TypeScript AI agent harness. Companion code to [*How AI agents work: a control flow breakdown*](https://karankochar.dev/posts/how-ai-agents-work-a-control-flow-breakdown).
+
+**Launch post:** [*MARCO: the loop inside a harness, in code*](https://karankochar.dev/posts/marco-the-loop-inside-a-harness-in-code) — describes `v0.1.0`. The repo will keep evolving; the post is pinned to that tag.
 
 ## Why another agent library?
 
