@@ -2,6 +2,7 @@
 // mini-claude-code — CLI entry point.
 
 import { createInterface } from 'node:readline/promises'
+import { readFileSync, existsSync } from 'node:fs'
 import { stdin, stdout, argv, env, exit } from 'node:process'
 import { join } from 'node:path'
 import { cwd } from 'node:process'
@@ -9,6 +10,27 @@ import {
   Harness, AnthropicProvider,
   type Hooks, type Message,
 } from '../../../src/index.js'
+
+// Minimal .env loader — avoids taking a dotenv dependency. Lines of the form
+// `KEY=value` are added to process.env unless already set. Comments and
+// blank lines are skipped. Quoted values have their surrounding quotes stripped.
+function loadDotEnv(path: string): void {
+  if (!existsSync(path)) return
+  const content = readFileSync(path, 'utf8')
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const eq = line.indexOf('=')
+    if (eq === -1) continue
+    const key = line.slice(0, eq).trim()
+    let value = line.slice(eq + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (!env[key]) env[key] = value
+  }
+}
 import {
   loadConfig, setSelectedModel, resetConfig,
   DEFAULT_CONFIG_PATH,
@@ -30,6 +52,8 @@ const SYSTEM_PROMPT = `You are a helpful coding assistant. You have four tools:
 Be concise. Prefer reading before writing. Confirm your understanding before making changes.`
 
 async function main(): Promise<void> {
+  loadDotEnv(join(cwd(), '.env'))
+
   const args = argv.slice(2)
 
   if (args[0] === 'config') {

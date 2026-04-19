@@ -8,6 +8,12 @@ A deliberately narrow CLI agent built with MARCO. Four tools: `bash`, `read`, `w
 ANTHROPIC_API_KEY=sk-... npm run example
 ```
 
+Or drop your key into a `.env` file at the repo root (see `.env.example`) and run:
+
+```bash
+npm run example
+```
+
 First run creates `~/.marco/config.json` with Claude Sonnet 4.6 selected.
 
 ## Subcommands
