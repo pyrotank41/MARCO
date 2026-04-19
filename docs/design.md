@@ -33,7 +33,7 @@ Every interaction between the inner loop and the harness flows through one of th
 
 Tools are model-initiated. The model emits a tool call; the harness decides what to do with it.
 
-Tools are registered in a harness-owned registry. Each tool has a schema (zod), an execute function, and optional metadata (category, permission level).
+Tools are registered in a harness-owned registry. Each tool carries a JSON schema describing its input (sent to the provider API), a runtime validator (typically backed by zod), a handler, and optional metadata (category, permission level).
 
 **Tool execution is not inside the inner loop.** The loop emits a request and consumes a result. Everything in between — permission checks, human approval, execution, redaction — is harness territory, implemented via the `beforeToolCall` and `afterToolResult` hooks.
 
@@ -88,17 +88,19 @@ Loop-initiated. On each iteration, the loop asks the harness for the next assist
 
 ```ts
 interface ModelProvider {
-  stream(messages: Message[], tools: Tool[], config: ModelConfig)
+  stream(messages: Message[], tools: ToolSpec[], config: ModelConfig)
     : AsyncIterable<ChunkEvent>
 }
 ```
+
+`ToolSpec` is a provider-agnostic serializable shape (`{ name, description, inputSchema }`) produced from the tool registry via `toSpecs()`. The provider never sees the Tool's handler or validator — only the wire-level schema.
 
 The provider normalizes all provider-specific shapes (Anthropic, OpenAI, Google, local) to MARCO's canonical message format. This normalization is where *model-agnostic* is enforced — not by supporting every provider out of the box, but by making the interface thin enough that swapping providers is a single file.
 
 ### Canonical shapes
 
 ```ts
-type Message = UserMessage | AssistantMessage | ToolResultMessage
+type Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage
 
 type AssistantMessage = {
   role: 'assistant'
@@ -181,7 +183,7 @@ The *decision* to compact is harness policy. The *execution* may require the mod
 
 - **Durable execution.** Resume-after-crash is out of scope. Compose MARCO with Inngest or Temporal for durability. MARCO's process model is: one run, one process.
 - **Multi-agent / handoffs.** Handoffs are tool calls in MARCO's model; dedicated multi-agent orchestration is a separate concern.
-- **Memory backend.** Memory is tools. Example: a SQLite-backed memory tool in the examples dir. Bring your own backend.
+- **Memory backend.** Memory is tools. Bring your own backend — register a tool that reads and writes memory however you want.
 - **Evals.** Out of scope.
 - **Production observability.** Hooks provide the surfaces; bring your own OTEL adapter.
 - **RAG / retrieval stack.** A tool concern. Example provided; bring your own retrieval.
