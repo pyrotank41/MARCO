@@ -40,7 +40,7 @@ import { bashTool } from './tools/bash.js'
 import { readTool } from './tools/read.js'
 import { writeTool } from './tools/write.js'
 import { editTool } from './tools/edit.js'
-import { permissionHook } from './permissions.js'
+import { createPermissionHook } from './permissions.js'
 import { StreamingProvider } from './streaming.js'
 
 const SYSTEM_PROMPT = `You are a helpful coding assistant. You have four tools:
@@ -78,6 +78,11 @@ async function main(): Promise<void> {
   const sessionDir = join(cwd(), '.marco')
   const historyMessages = loadSession(sessionDir, sessionId)
 
+  // Single readline for the whole session — used by the REPL loop AND by
+  // the permission hook. Creating a nested readline per prompt would
+  // cascade-close stdin when the nested one ends, killing the REPL.
+  const rl = createInterface({ input: stdin, output: stdout })
+
   const provider = new StreamingProvider(new AnthropicProvider({ apiKey }))
 
   const hooks: Hooks = {
@@ -90,7 +95,7 @@ async function main(): Promise<void> {
       }
       return { allowed: true, messages: hydrated }
     },
-    beforeToolCall: permissionHook,
+    beforeToolCall: createPermissionHook(rl),
     onRunEnd: async ({ status, finalMessage, error }) => {
       if (finalMessage) {
         appendMessage(sessionDir, sessionId!, finalMessage)
@@ -112,7 +117,6 @@ async function main(): Promise<void> {
 
   stdout.write(`\nmini-claude-code — session ${sessionId}\nmodel: ${cfg.selected_model}\n(type "exit" to quit)\n\n`)
 
-  const rl = createInterface({ input: stdin, output: stdout })
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const text = (await rl.question('> ')).trim()
