@@ -1,6 +1,6 @@
 // MARCO — Harness. The outer-loop orchestrator. Owns tool registry, hooks,
 // provider, config. Also owns tool execution — the inner loop delegates
-// to this class via the `executeToolCall` closure passed into runInnerLoop.
+// to this class via the `handleToolCall` closure passed into runInnerLoop.
 
 import { randomUUID } from 'node:crypto'
 import { runInnerLoop, type RunInnerLoopResult } from './innerLoop.js'
@@ -82,7 +82,7 @@ export class Harness {
       messages,
       provider: this.provider,
       toolSpecs: this.toolRegistry.toSpecs(),
-      executeToolCall: (call) => this.executeToolCall(call, runId),
+      requestToolCall: (call) => this.handleToolCall(call, runId),
       hooks: { beforeModelCall: this.hooks.beforeModelCall },
       modelConfig,
       maxIterations: this.maxIterations,
@@ -101,15 +101,17 @@ export class Harness {
   }
 
   /**
-   * Execute one tool call. Harness territory — the inner loop never calls
-   * this directly; it invokes the bound closure passed into runInnerLoop.
+   * Handle a single tool call — the outcome may be execution, denial,
+   * a short-circuit cached result, or an error. The loop asks (via
+   * requestToolCall); the harness handles. The loop never calls this
+   * directly — it invokes the bound closure passed into runInnerLoop.
    *
    * Lifecycle per call: beforeToolCall hook (decide execute / deny /
    * short-circuit) → tool.validate → tool.handler → afterToolResult hook.
    * Errors (validation, handler throws, unknown tool) become error
    * ToolResultMessage objects so the model can see and react.
    */
-  private async executeToolCall(call: ToolCall, runId: string): Promise<ToolResultMessage> {
+  private async handleToolCall(call: ToolCall, runId: string): Promise<ToolResultMessage> {
     const harnessDecision = await runHook(this.hooks.beforeToolCall, { toolCall: call, runId })
 
     // Short-circuit paths: harness said don't actually execute

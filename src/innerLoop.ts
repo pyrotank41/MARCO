@@ -2,9 +2,9 @@
 // execution, accumulate results, decide stop.
 //
 // Deliberately small. The loop does NOT execute tools itself — it calls
-// the `executeToolCall` function supplied by the harness. The loop's
+// the `requestToolCall` function supplied by the harness. The loop's
 // world is narrow: provider, tool specs (as data), beforeModelCall hook,
-// and executeToolCall. Everything else about tools — registry, handlers,
+// and requestToolCall. Everything else about tools — registry, handlers,
 // permission gates, redaction — lives in the harness layer.
 
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from './messages.js'
@@ -16,7 +16,7 @@ export type RunInnerLoopInput = {
   messages: Message[]
   provider: ModelProvider
   toolSpecs: ToolSpec[]
-  executeToolCall: (call: ToolCall) => Promise<ToolResultMessage>
+  requestToolCall: (call: ToolCall) => Promise<ToolResultMessage>
   hooks: Pick<Hooks, 'beforeModelCall'>
   modelConfig: ModelConfig
   maxIterations?: number
@@ -34,7 +34,7 @@ export type RunInnerLoopResult = {
 const DEFAULT_MAX_ITERATIONS = 25
 
 export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLoopResult> {
-  const { runId, provider, toolSpecs, executeToolCall, hooks, modelConfig } = input
+  const { runId, provider, toolSpecs, requestToolCall, hooks, modelConfig } = input
   const maxIterations = input.maxIterations ?? DEFAULT_MAX_ITERATIONS
 
   let messages: Message[] = [...input.messages]
@@ -98,10 +98,11 @@ export async function runInnerLoop(input: RunInnerLoopInput): Promise<RunInnerLo
         }
 
       case 'tool_use': {
-        // Delegate to the harness. The loop never touches a tool directly.
+        // The loop requests; the harness handles. The loop never executes
+        // a tool directly — it just collects the results.
         const toolResults: ToolResultMessage[] = []
         for (const call of assistantMessage.toolCalls) {
-          toolResults.push(await executeToolCall(call))
+          toolResults.push(await requestToolCall(call))
         }
         messages = [...messages, ...toolResults]
         break

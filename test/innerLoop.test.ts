@@ -18,7 +18,7 @@ const echoTool: Tool = {
 }
 
 /**
- * Minimal stand-in for the harness's executeToolCall function. The inner
+ * Minimal stand-in for the harness's requestToolCall function. The inner
  * loop tests don't exercise hook-driven execution paths (deny,
  * short-circuit, unknown tool) — those are the harness's responsibility
  * and live in test/harness.test.ts. Here we just need to actually run
@@ -41,7 +41,7 @@ function makeDirectExecutor(registry: ToolRegistry) {
 }
 
 const noExecutor = async (): Promise<ToolResultMessage> => {
-  throw new Error('executeToolCall should not be called in this test')
+  throw new Error('requestToolCall should not be called in this test')
 }
 
 describe('runInnerLoop', () => {
@@ -56,7 +56,7 @@ describe('runInnerLoop', () => {
       messages: [{ role: 'user', text: 'hi' }],
       provider,
       toolSpecs: [],
-      executeToolCall: noExecutor,
+      requestToolCall: noExecutor,
       hooks: {},
       modelConfig: { model: 'mock' },
     }
@@ -66,7 +66,7 @@ describe('runInnerLoop', () => {
     expect(result.iterations).toBe(1)
   })
 
-  it('delegates tool calls to executeToolCall and feeds results back until end_turn', async () => {
+  it('delegates tool calls to requestToolCall and feeds results back until end_turn', async () => {
     const turn1: AssistantMessage = {
       role: 'assistant', text: '', toolCalls: [
         { id: 'c1', name: 'echo', input: { text: 'hi' } },
@@ -89,7 +89,7 @@ describe('runInnerLoop', () => {
       messages: [{ role: 'user', text: 'say hi' }],
       provider,
       toolSpecs: registry.toSpecs(),
-      executeToolCall: makeDirectExecutor(registry),
+      requestToolCall: makeDirectExecutor(registry),
       hooks: {},
       modelConfig: { model: 'mock' },
     })
@@ -118,7 +118,7 @@ describe('runInnerLoop', () => {
       messages: [{ role: 'user', text: 'hi' }],
       provider,
       toolSpecs: [],
-      executeToolCall: noExecutor,
+      requestToolCall: noExecutor,
       hooks: {
         beforeModelCall: async ({ messages }) => ({ messages, abort: true, abortReason: 'budget' }),
       },
