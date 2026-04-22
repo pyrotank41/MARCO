@@ -11,6 +11,20 @@ import {
   type Hooks, type Message,
 } from '../../../src/index.js'
 
+// Load project-specific context from ./CLAUDE.md if present.
+// Returns the file contents as a string, or null if there is no CLAUDE.md
+// in the current working directory. This mirrors Claude Code's behavior —
+// a coding agent should pick up project-level instructions automatically.
+function loadProjectContext(dir: string): string | null {
+  const path = join(dir, 'CLAUDE.md')
+  if (!existsSync(path)) return null
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+
 // Minimal .env loader — avoids taking a dotenv dependency. Lines of the form
 // `KEY=value` are added to process.env unless already set. Comments and
 // blank lines are skipped. Quoted values have their surrounding quotes stripped.
@@ -77,6 +91,11 @@ async function main(): Promise<void> {
 
   const sessionDir = join(cwd(), '.marco')
 
+  // Load CLAUDE.md once per session — project-level context that gets
+  // prepended to the system prompt. If the user runs mini-claude-code from
+  // a directory without a CLAUDE.md, projectContext is null and we skip it.
+  const projectContext = loadProjectContext(cwd())
+
   // Single readline for the whole session — used by the REPL loop AND by
   // the permission hook. Creating a nested readline per prompt would
   // cascade-close stdin when the nested one ends, killing the REPL.
@@ -90,9 +109,16 @@ async function main(): Promise<void> {
       // previous turns persisted. Capturing history once at startup would
       // leave every turn hydrating from a stale snapshot.
       const history = loadSession(sessionDir, sessionId!)
-      const hydrated: Message[] = history.length
-        ? [{ role: 'system', text: SYSTEM_PROMPT }, ...history, ...messages]
-        : [{ role: 'system', text: SYSTEM_PROMPT }, ...messages]
+      const systemMessages: Message[] = [
+        { role: 'system', text: SYSTEM_PROMPT },
+      ]
+      if (projectContext) {
+        systemMessages.push({
+          role: 'system',
+          text: `Project context from CLAUDE.md:\n\n${projectContext}`,
+        })
+      }
+      const hydrated: Message[] = [...systemMessages, ...history, ...messages]
       for (const msg of messages) {
         appendMessage(sessionDir, sessionId!, msg)
       }

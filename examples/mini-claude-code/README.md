@@ -1,6 +1,6 @@
 # mini-claude-code
 
-A deliberately narrow CLI agent built with MARCO. Four tools: `bash`, `read`, `write`, `edit`. Stream tokens to the terminal. Per-tool permission UX. Session persistence as JSONL.
+A deliberately narrow CLI agent built with MARCO. Four tools: `bash`, `read`, `write`, `edit`. Stream tokens to the terminal. Per-tool permission UX. Session persistence as JSONL. Auto-loads `./CLAUDE.md` at start if one exists, so the agent picks up project-level instructions.
 
 ## Run
 
