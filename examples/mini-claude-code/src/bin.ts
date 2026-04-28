@@ -9,7 +9,7 @@ import { cwd } from 'node:process'
 import {
   Harness, AnthropicProvider,
   type Hooks, type Message,
-} from '../../../src/index.js'
+} from 'marco-harness'
 
 // Load project-specific context from ./CLAUDE.md if present.
 // Returns the file contents as a string, or null if there is no CLAUDE.md

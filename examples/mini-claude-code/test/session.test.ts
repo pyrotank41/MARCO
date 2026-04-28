@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { newSessionId, loadSession, appendMessage } from '../src/session.js'
-import type { Message } from '../../../src/messages.js'
+import type { Message } from 'marco-harness'
 
 let dir: string
 

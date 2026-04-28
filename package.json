@@ -1,5 +1,5 @@
 {
-  "name": "marco",
+  "name": "marco-harness",
   "version": "0.1.0",
   "description": "Model-Agnostic Runtime for Controlled Orchestration — a small, readable AI agent harness.",
   "type": "module",
@@ -11,13 +11,14 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "example": "tsx examples/mini-claude-code/src/bin.ts"
+    "example": "tsx examples/mini-claude-code/src/bin.ts",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.55.0",
@@ -31,5 +32,27 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "keywords": [
+    "ai",
+    "ai-agent",
+    "agent",
+    "anthropic",
+    "claude",
+    "harness",
+    "tools",
+    "tool-use",
+    "llm",
+    "orchestration"
+  ],
+  "author": "Karan Kochar <karankochar13@gmail.com> (https://karankochar.dev)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pyrotank41/MARCO.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pyrotank41/MARCO/issues"
+  },
+  "homepage": "https://github.com/pyrotank41/MARCO#readme"
 }

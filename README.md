@@ -18,13 +18,13 @@ The point is clarity, not breadth.
 ## Install
 
 ```bash
-npm install marco
+npm install marco-harness
 ```
 
 ## Usage
 
 ```typescript
-import { Harness, AnthropicProvider, type Tool } from 'marco'
+import { Harness, AnthropicProvider, type Tool } from 'marco-harness'
 import { z } from 'zod'
 
 const echoTool: Tool = {

@@ -5,7 +5,7 @@ import {
   readFileSync, existsSync, appendFileSync, mkdirSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import type { Message } from '../../../src/messages.js'
+import type { Message } from 'marco-harness'
 
 export function newSessionId(): string {
   return randomUUID()
