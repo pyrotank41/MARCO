@@ -1,12 +1,13 @@
 // mini-claude-code — pipe provider events to stdout as they arrive.
 //
-// Thin wrapper around a ModelProvider that forwards text_delta events
-// to stdout before yielding them. The harness's inner loop is unaware;
-// it sees the same ChunkEvent stream.
+// Buffers text_delta events per assistant message and renders the completed
+// markdown (with ANSI styling, in pastel blue) on message_end. We trade live
+// token streaming for proper markdown rendering — partial markdown tokens
+// (``` fences, **bold**, etc.) can't be styled correctly mid-stream.
 
 import { stdout } from 'node:process'
-import type { ChunkEvent, ModelProvider, ModelConfig, ToolSpec } from '../../../src/provider.js'
-import type { Message } from '../../../src/messages.js'
+import type { ChunkEvent, ModelProvider, ModelConfig, ToolSpec, Message } from 'marco-harness'
+import { renderMarkdown, DIM, RESET } from './ui.js'
 
 export class StreamingProvider implements ModelProvider {
   constructor(private readonly inner: ModelProvider) {}
@@ -16,14 +17,45 @@ export class StreamingProvider implements ModelProvider {
     tools: ToolSpec[],
     config: ModelConfig,
   ): AsyncIterable<ChunkEvent> {
-    for await (const event of this.inner.stream(messages, tools, config)) {
-      if (event.type === 'text_delta') {
-        stdout.write(event.text)
+    let buffer = ''
+    let spinnerTimer: ReturnType<typeof setInterval> | null = null
+    let spinnerActive = false
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    let frameIdx = 0
+
+    const startSpinner = (): void => {
+      if (spinnerActive) return
+      spinnerActive = true
+      spinnerTimer = setInterval(() => {
+        stdout.write(`\r${DIM}${frames[frameIdx]} thinking…${RESET}`)
+        frameIdx = (frameIdx + 1) % frames.length
+      }, 80)
+    }
+    const stopSpinner = (): void => {
+      if (!spinnerActive) return
+      if (spinnerTimer) clearInterval(spinnerTimer)
+      spinnerTimer = null
+      spinnerActive = false
+      stdout.write('\r\x1b[2K')
+    }
+
+    startSpinner()
+    try {
+      for await (const event of this.inner.stream(messages, tools, config)) {
+        if (event.type === 'text_delta') {
+          buffer += event.text
+        }
+        if (event.type === 'message_end') {
+          stopSpinner()
+          if (buffer.trim().length > 0) {
+            stdout.write(renderMarkdown(buffer) + '\n')
+          }
+          buffer = ''
+        }
+        yield event
       }
-      if (event.type === 'message_end') {
-        stdout.write('\n')
-      }
-      yield event
+    } finally {
+      stopSpinner()
     }
   }
 }

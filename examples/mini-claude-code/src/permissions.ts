@@ -8,11 +8,22 @@
 import { stdout } from 'node:process'
 import { readFileSync, existsSync } from 'node:fs'
 import type { Interface as Readline } from 'node:readline/promises'
-import type { BeforeToolCallInput, BeforeToolCallOutput } from '../../../src/hooks.js'
+import type { BeforeToolCallInput, BeforeToolCallOutput } from 'marco-harness'
+import { PASTEL_ORANGE, RESET, DIM, BOLD, orange } from './ui.js'
 
 function isYes(answer: string): boolean {
   const a = answer.trim().toLowerCase()
   return a === 'y' || a === 'yes'
+}
+
+const RULE = `${DIM}${'─'.repeat(60)}${RESET}`
+
+function header(label: string): string {
+  return `\n${PASTEL_ORANGE}${BOLD}┌ ${label}${RESET}\n`
+}
+
+function ask(prompt: string): string {
+  return `${PASTEL_ORANGE}${prompt}${RESET}`
 }
 
 function previewDiff(oldContent: string, newContent: string): string {
@@ -24,10 +35,10 @@ function previewDiff(oldContent: string, newContent: string): string {
     const a = oldLines[i]
     const b = newLines[i]
     if (a === b) {
-      out.push(`  ${a ?? ''}`)
+      out.push(`${DIM}  ${a ?? ''}${RESET}`)
     } else {
-      if (a !== undefined) out.push(`- ${a}`)
-      if (b !== undefined) out.push(`+ ${b}`)
+      if (a !== undefined) out.push(`\x1b[38;5;174m- ${a}${RESET}`)
+      if (b !== undefined) out.push(`\x1b[38;5;151m+ ${b}${RESET}`)
     }
   }
   return out.join('\n')
@@ -51,7 +62,9 @@ export function createPermissionHook(rl: Readline) {
 
       case 'bash': {
         const command = (toolCall.input as { command?: string }).command ?? ''
-        const answer = await rl.question(`\n$ ${command}\n\nRun this command? [y/N] `)
+        stdout.write(header('bash'))
+        stdout.write(`${PASTEL_ORANGE}$ ${command}${RESET}\n`)
+        const answer = await rl.question(ask('\nRun this command? [y/N] '))
         return isYes(answer)
           ? { decision: 'execute' }
           : { decision: 'deny', reason: 'User denied bash execution' }
@@ -59,11 +72,12 @@ export function createPermissionHook(rl: Readline) {
 
       case 'write': {
         const { path, content } = toolCall.input as { path?: string; content?: string }
-        stdout.write(`\nWrite to ${path ?? '<unknown>'} (${(content ?? '').length} bytes):\n`)
-        stdout.write('─'.repeat(40) + '\n')
+        stdout.write(header(`write → ${path ?? '<unknown>'}`))
+        stdout.write(`${DIM}(${(content ?? '').length} bytes)${RESET}\n`)
+        stdout.write(RULE + '\n')
         stdout.write((content ?? '') + '\n')
-        stdout.write('─'.repeat(40) + '\n')
-        const answer = await rl.question('Write this file? [y/N] ')
+        stdout.write(RULE + '\n')
+        const answer = await rl.question(ask('Write this file? [y/N] '))
         return isYes(answer)
           ? { decision: 'execute' }
           : { decision: 'deny', reason: 'User denied write' }
@@ -77,18 +91,18 @@ export function createPermissionHook(rl: Readline) {
         }
         const current = path && existsSync(path) ? readFileSync(path, 'utf8') : ''
         const next = current.replace(old_string ?? '', new_string ?? '')
-        stdout.write(`\nEdit ${path ?? '<unknown>'}:\n`)
-        stdout.write('─'.repeat(40) + '\n')
+        stdout.write(header(`edit → ${path ?? '<unknown>'}`))
+        stdout.write(RULE + '\n')
         stdout.write(previewDiff(current, next) + '\n')
-        stdout.write('─'.repeat(40) + '\n')
-        const answer = await rl.question('Apply this edit? [y/N] ')
+        stdout.write(RULE + '\n')
+        const answer = await rl.question(ask('Apply this edit? [y/N] '))
         return isYes(answer)
           ? { decision: 'execute' }
           : { decision: 'deny', reason: 'User denied edit' }
       }
 
       default:
-        return { decision: 'deny', reason: `Unknown tool: ${toolCall.name}` }
+        return { decision: 'deny', reason: orange(`Unknown tool: ${toolCall.name}`) }
     }
   }
 }
