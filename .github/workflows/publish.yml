@@ -18,6 +18,11 @@ jobs:
           node-version: '22'
           cache: npm
           registry-url: 'https://registry.npmjs.org'
+      # npm trusted publisher (OIDC) requires npm 11.5.1+. Node 22 ships
+      # with npm 10, which generates provenance correctly but cannot perform
+      # the OIDC token exchange — registry rejects the publish with a
+      # misleading 404. Upgrading npm before publish fixes it.
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
