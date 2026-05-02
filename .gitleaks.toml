@@ -1,0 +1,19 @@
+# gitleaks config — extends defaults with rules for providers gitleaks
+# doesn't catch out of the box. Used by .git/hooks/pre-commit.
+
+title = "marco-agent gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key (sk-ant-api03-* / sk-ant-admin01-*)"
+regex = '''sk-ant-(api|admin)\d{2}-[A-Za-z0-9_\-]{80,}'''
+keywords = ["sk-ant-"]
+
+[[rules]]
+id = "openrouter-api-key"
+description = "OpenRouter API key (sk-or-v1-*)"
+regex = '''sk-or-v\d-[A-Za-z0-9]{32,}'''
+keywords = ["sk-or-"]
