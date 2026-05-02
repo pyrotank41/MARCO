@@ -40,3 +40,4 @@ export type {
 
 export { MockProvider } from './providers/mock.js'
 export { AnthropicProvider, type AnthropicProviderOptions } from './providers/anthropic.js'
+export { OpenAICompatibleProvider, type OpenAICompatibleProviderOptions } from './providers/openai-compatible.js'
