@@ -26,6 +26,11 @@ export type UserMessage = {
 export type AssistantMessage = {
   role: 'assistant'
   text?: string
+  // The model's chain-of-thought, surfaced separately from `text` for
+  // reasoning models (DeepSeek R1/V4-Pro, OpenAI o-series, Anthropic
+  // extended thinking). Optional — only set when the provider received
+  // reasoning content from the upstream model.
+  reasoning?: string
   toolCalls: ToolCall[]
   stopReason: StopReason
   usage: Usage

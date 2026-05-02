@@ -174,6 +174,63 @@ describe('OpenAICompatibleProvider', () => {
       .rejects.toThrow(/HTTP 403/)
   })
 
+  it('surfaces reasoning_content as reasoning_delta events and final message.reasoning', async () => {
+    const provider = new OpenAICompatibleProvider({
+      apiKey: 'test',
+      fetch: fakeFetch([
+        frame({ choices: [{ delta: { reasoning_content: 'Let me think... ' } }] }),
+        frame({ choices: [{ delta: { reasoning_content: 'the answer is 42.' } }] }),
+        frame({ choices: [{ delta: { content: 'The answer is 42.' } }] }),
+        frame({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 8 } }),
+        'data: [DONE]\n\n',
+      ]),
+    })
+
+    const events = await collect(provider.stream([{ role: 'user', text: 'what is the answer?' }], [], baseConfig))
+
+    const reasoningParts = events
+      .filter((e) => e.type === 'reasoning_delta')
+      .map((e) => (e as { text: string }).text)
+    expect(reasoningParts.join('')).toBe('Let me think... the answer is 42.')
+
+    const end = events.find((e) => e.type === 'message_end')!
+    if (end.type !== 'message_end') throw new Error('expected message_end')
+    expect(end.message.reasoning).toBe('Let me think... the answer is 42.')
+    expect(end.message.text).toBe('The answer is 42.')
+  })
+
+  it('also accepts reasoning (without _content suffix) as some providers use it', async () => {
+    const provider = new OpenAICompatibleProvider({
+      apiKey: 'test',
+      fetch: fakeFetch([
+        frame({ choices: [{ delta: { reasoning: 'thinking...' } }] }),
+        frame({ choices: [{ delta: { content: 'done.' } }] }),
+        frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+        'data: [DONE]\n\n',
+      ]),
+    })
+    const events = await collect(provider.stream([{ role: 'user', text: 'hi' }], [], baseConfig))
+    const end = events.find((e) => e.type === 'message_end')!
+    if (end.type !== 'message_end') throw new Error('expected message_end')
+    expect(end.message.reasoning).toBe('thinking...')
+    expect(end.message.text).toBe('done.')
+  })
+
+  it('omits reasoning field when no reasoning chunks were received', async () => {
+    const provider = new OpenAICompatibleProvider({
+      apiKey: 'test',
+      fetch: fakeFetch([
+        frame({ choices: [{ delta: { content: 'hi' } }] }),
+        frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+        'data: [DONE]\n\n',
+      ]),
+    })
+    const events = await collect(provider.stream([{ role: 'user', text: 'hi' }], [], baseConfig))
+    const end = events.find((e) => e.type === 'message_end')!
+    if (end.type !== 'message_end') throw new Error('expected message_end')
+    expect(end.message.reasoning).toBeUndefined()
+  })
+
   it('strips trailing slash from baseURL', async () => {
     let seenUrl: string | null = null
     const fetch = (async (url: unknown) => {

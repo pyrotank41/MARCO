@@ -17,6 +17,7 @@ export type ToolSpec = {
 
 export type ChunkEvent =
   | { type: 'text_delta'; text: string }
+  | { type: 'reasoning_delta'; text: string }
   | { type: 'tool_call_start'; id: string; name: string }
   | { type: 'tool_call_delta'; id: string; inputJson: string }
   | { type: 'tool_call_end'; id: string }

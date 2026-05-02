@@ -80,6 +80,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     if (!res.body) throw new Error('OpenAI-compatible: no response body')
 
     let accumulatedText: string | undefined
+    let accumulatedReasoning: string | undefined
     const toolCallBuilders = new Map<number, { id: string; name: string; argParts: string[] }>()
     const emittedStartIds = new Set<number>()
     let stopReason: StopReason = 'end_turn'
@@ -92,6 +93,15 @@ export class OpenAICompatibleProvider implements ModelProvider {
       if (choice?.delta?.content) {
         accumulatedText = (accumulatedText ?? '') + choice.delta.content
         yield { type: 'text_delta', text: choice.delta.content }
+      }
+
+      // Reasoning content from chain-of-thought models (DeepSeek R1/V4-Pro,
+      // OpenAI o-series via OpenRouter, etc.). Different providers use
+      // different field names — accept both.
+      const reasoningChunk = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+      if (reasoningChunk) {
+        accumulatedReasoning = (accumulatedReasoning ?? '') + reasoningChunk
+        yield { type: 'reasoning_delta', text: reasoningChunk }
       }
 
       if (choice?.delta?.tool_calls) {
@@ -143,6 +153,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
       message: {
         role: 'assistant',
         ...(accumulatedText !== undefined && { text: accumulatedText }),
+        ...(accumulatedReasoning !== undefined && { reasoning: accumulatedReasoning }),
         toolCalls,
         stopReason,
         usage: { inputTokens, outputTokens },
@@ -209,6 +220,10 @@ type StreamChunk = {
   choices?: Array<{
     delta?: {
       content?: string
+      // Reasoning models surface chain-of-thought either as
+      // `reasoning_content` (DeepSeek) or `reasoning` (some others).
+      reasoning_content?: string
+      reasoning?: string
       tool_calls?: Array<{
         index: number
         id?: string
