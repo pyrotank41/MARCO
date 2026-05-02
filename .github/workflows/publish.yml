@@ -15,14 +15,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Node 24 ships with npm 11+, which is required for the trusted
+          # publisher OIDC token exchange. Node 22 ships with npm 10 (no
+          # OIDC exchange — provenance signs fine but the publish PUT 404s
+          # with a misleading 'not in this registry' error).
+          # Self-upgrading npm in-place corrupts its install, so bumping
+          # Node is the clean fix.
+          node-version: '24'
           cache: npm
           registry-url: 'https://registry.npmjs.org'
-      # npm trusted publisher (OIDC) requires npm 11.5.1+. Node 22 ships
-      # with npm 10, which generates provenance correctly but cannot perform
-      # the OIDC token exchange — registry rejects the publish with a
-      # misleading 404. Upgrading npm before publish fixes it.
-      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
