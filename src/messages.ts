@@ -13,34 +13,34 @@ export type ToolCall = {
   input: unknown
 }
 
-// Metadata attached to synthesized system messages so consumers can
-// distinguish them from user-provided ones in `result.messages` without
-// threading separate stream-event tracking through their persistence layer.
+// Free-form passthrough slot on any message. The harness NEVER reads, writes,
+// or transforms `meta` — it exists purely so libraries and apps that
+// synthesize, annotate, or persist messages have a place to attach
+// information without needing to extend the canonical message types.
 //
-// Currently the only kind is 'compaction' (set by marco-agent's
-// performCompaction when it folds the prefix into a summary). Future kinds
-// could include 'tool-output-truncation', 'safety-redaction', etc.
-export type SystemMessageMeta = {
-  kind: 'compaction'
-  // Number of original messages that were collapsed into this summary.
-  messagesRemoved: number
-  // Tokens spent on the summary LLM call. inputTokens covers the prefix
-  // that was summarized; outputTokens covers the summary text itself. Both
-  // matter for cost attribution — neither is derivable from the other.
-  summaryUsage: Usage
-}
+// Convention (not enforced): when one layer produces a message and another
+// consumes it, use a `kind: string` discriminator so consumers can branch
+// reliably. Examples:
+//   - marco-agent's performCompaction sets
+//       meta = { kind: 'compaction', messagesRemoved, summaryUsage }
+//     and exports a type guard for consumers to narrow safely.
+//   - An app might set meta = { transport: 'whatsapp', sourceMsgId: '...' }
+//     on user messages, or { retried: true, attempt: 2 } on assistants.
+//
+// Stays optional everywhere; absent / undefined / null carry the same
+// meaning. Harness has zero opinion about the contents.
+export type MessageMeta = Record<string, unknown>
 
 export type SystemMessage = {
   role: 'system'
   text: string
-  // Optional. Set on synthesized system messages (e.g. compaction summary).
-  // Plain user-provided system prompts leave this undefined.
-  meta?: SystemMessageMeta
+  meta?: MessageMeta
 }
 
 export type UserMessage = {
   role: 'user'
   text: string
+  meta?: MessageMeta
 }
 
 export type AssistantMessage = {
@@ -54,6 +54,7 @@ export type AssistantMessage = {
   toolCalls: ToolCall[]
   stopReason: StopReason
   usage: Usage
+  meta?: MessageMeta
 }
 
 export type ToolResultMessage = {
@@ -61,6 +62,7 @@ export type ToolResultMessage = {
   toolCallId: string
   content: string
   isError: boolean
+  meta?: MessageMeta
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage

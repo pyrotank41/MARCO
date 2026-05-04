@@ -1,7 +1,7 @@
-import { describe, it, expect, assertType } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import type {
-  Message, SystemMessage, SystemMessageMeta, UserMessage, AssistantMessage, ToolResultMessage,
-  ToolCall, StopReason, Usage,
+  Message, SystemMessage, UserMessage, AssistantMessage, ToolResultMessage,
+  MessageMeta, ToolCall, StopReason,
 } from '../src/messages.js'
 
 describe('messages', () => {
@@ -37,34 +37,62 @@ describe('messages', () => {
     expect(reasons).toHaveLength(5)
   })
 
-  describe('SystemMessageMeta', () => {
-    it('SystemMessage.meta is optional — plain user system prompts leave it unset', () => {
-      const plain: SystemMessage = { role: 'system', text: 'you are helpful' }
-      expect(plain.meta).toBeUndefined()
+  describe('MessageMeta — opaque passthrough slot on every message', () => {
+    it('meta is optional on every variant; plain messages leave it undefined', () => {
+      const sys: SystemMessage = { role: 'system', text: 'plain' }
+      const user: UserMessage = { role: 'user', text: 'plain' }
+      const assistant: AssistantMessage = {
+        role: 'assistant', text: 'plain', toolCalls: [], stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }
+      const tool: ToolResultMessage = { role: 'tool', toolCallId: 'x', content: '', isError: false }
+
+      expect(sys.meta).toBeUndefined()
+      expect(user.meta).toBeUndefined()
+      expect(assistant.meta).toBeUndefined()
+      expect(tool.meta).toBeUndefined()
     })
 
-    it('SystemMessage accepts compaction meta with summaryUsage', () => {
-      const meta: SystemMessageMeta = {
+    it('accepts arbitrary keys on any message — harness has no opinion about contents', () => {
+      // System: marco-agent compaction shape
+      const sysMeta: MessageMeta = {
         kind: 'compaction',
         messagesRemoved: 14,
         summaryUsage: { inputTokens: 5000, outputTokens: 100 },
       }
-      const msg: SystemMessage = {
-        role: 'system',
-        text: 'Summary of earlier conversation:\n...',
-        meta,
+      const sys: SystemMessage = { role: 'system', text: 'Summary...', meta: sysMeta }
+
+      // User: an app-level transport tag
+      const user: UserMessage = {
+        role: 'user', text: 'hi',
+        meta: { transport: 'whatsapp', sourceMsgId: 'wa_abc123' },
       }
-      expect(msg.meta?.kind).toBe('compaction')
-      expect(msg.meta?.messagesRemoved).toBe(14)
-      expect(msg.meta?.summaryUsage).toEqual({ inputTokens: 5000, outputTokens: 100 })
+
+      // Assistant: an app-level retry annotation
+      const assistant: AssistantMessage = {
+        role: 'assistant', text: 'hi back', toolCalls: [], stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+        meta: { retried: true, attempt: 2 },
+      }
+
+      // Tool: an app-level truncation marker
+      const tool: ToolResultMessage = {
+        role: 'tool', toolCallId: 'x', content: 'first 1KB...', isError: false,
+        meta: { truncated: true, originalBytes: 8192 },
+      }
+
+      // Convention check: kind discriminator works for branching
+      expect(sys.meta?.kind).toBe('compaction')
+      expect(user.meta?.transport).toBe('whatsapp')
+      expect(assistant.meta?.attempt).toBe(2)
+      expect(tool.meta?.truncated).toBe(true)
     })
 
-    it('SystemMessageMeta.summaryUsage reuses the Usage type so cost attribution is consistent', () => {
-      const usage: Usage = { inputTokens: 1, outputTokens: 2 }
-      const meta: SystemMessageMeta = { kind: 'compaction', messagesRemoved: 1, summaryUsage: usage }
-      // Type-level assertion: meta.summaryUsage is assignable to Usage and vice versa
-      assertType<Usage>(meta.summaryUsage)
-      expect(meta.summaryUsage).toBe(usage)
+    it('MessageMeta is structurally Record<string, unknown> — anything assignable', () => {
+      const m1: MessageMeta = {}
+      const m2: MessageMeta = { foo: 1, bar: 'x', baz: { nested: true } }
+      const m3: MessageMeta = { kind: 'whatever-future-thing' }
+      expect([m1, m2, m3]).toHaveLength(3)
     })
   })
 })
