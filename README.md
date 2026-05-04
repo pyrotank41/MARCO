@@ -1,5 +1,9 @@
 # MARCO
 
+[![npm version](https://img.shields.io/npm/v/marco-harness?color=cb3837&label=marco-harness&logo=npm)](https://www.npmjs.com/package/marco-harness)
+[![npm downloads](https://img.shields.io/npm/dm/marco-harness?color=cb3837&logo=npm)](https://www.npmjs.com/package/marco-harness)
+[![license](https://img.shields.io/npm/l/marco-harness)](./LICENSE)
+
 **M**odel-**A**gnostic **R**untime for **C**ontrolled **O**rchestration.
 
 A small TypeScript AI agent harness. Companion code to [*How AI agents work: a control flow breakdown*](https://karankochar.dev/posts/how-ai-agents-work-a-control-flow-breakdown).
