@@ -13,14 +13,34 @@ export type ToolCall = {
   input: unknown
 }
 
+// Free-form passthrough slot on any message. The harness NEVER reads, writes,
+// or transforms `meta` — it exists purely so libraries and apps that
+// synthesize, annotate, or persist messages have a place to attach
+// information without needing to extend the canonical message types.
+//
+// Convention (not enforced): when one layer produces a message and another
+// consumes it, use a `kind: string` discriminator so consumers can branch
+// reliably. Examples:
+//   - marco-agent's performCompaction sets
+//       meta = { kind: 'compaction', messagesRemoved, summaryUsage }
+//     and exports a type guard for consumers to narrow safely.
+//   - An app might set meta = { transport: 'whatsapp', sourceMsgId: '...' }
+//     on user messages, or { retried: true, attempt: 2 } on assistants.
+//
+// Stays optional everywhere; absent / undefined / null carry the same
+// meaning. Harness has zero opinion about the contents.
+export type MessageMeta = Record<string, unknown>
+
 export type SystemMessage = {
   role: 'system'
   text: string
+  meta?: MessageMeta
 }
 
 export type UserMessage = {
   role: 'user'
   text: string
+  meta?: MessageMeta
 }
 
 export type AssistantMessage = {
@@ -34,6 +54,7 @@ export type AssistantMessage = {
   toolCalls: ToolCall[]
   stopReason: StopReason
   usage: Usage
+  meta?: MessageMeta
 }
 
 export type ToolResultMessage = {
@@ -41,6 +62,7 @@ export type ToolResultMessage = {
   toolCallId: string
   content: string
   isError: boolean
+  meta?: MessageMeta
 }
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolResultMessage

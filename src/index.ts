@@ -30,6 +30,7 @@ export type {
 export type {
   Message,
   SystemMessage,
+  MessageMeta,
   UserMessage,
   AssistantMessage,
   ToolResultMessage,
