@@ -13,9 +13,27 @@ export type ToolCall = {
   input: unknown
 }
 
+// Metadata attached to synthesized system messages so consumers can
+// distinguish them from user-provided ones in `result.messages` without
+// threading separate stream-event tracking through their persistence layer.
+//
+// Currently the only kind is 'compaction' (set by marco-agent's
+// performCompaction when it folds the prefix into a summary). Future kinds
+// could include 'tool-output-truncation', 'safety-redaction', etc.
+export type SystemMessageMeta = {
+  kind: 'compaction'
+  // Number of original messages that were collapsed into this summary.
+  messagesRemoved: number
+  // Output tokens spent on the summary call.
+  summaryTokens: number
+}
+
 export type SystemMessage = {
   role: 'system'
   text: string
+  // Optional. Set on synthesized system messages (e.g. compaction summary).
+  // Plain user-provided system prompts leave this undefined.
+  meta?: SystemMessageMeta
 }
 
 export type UserMessage = {
