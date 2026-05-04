@@ -24,8 +24,10 @@ export type SystemMessageMeta = {
   kind: 'compaction'
   // Number of original messages that were collapsed into this summary.
   messagesRemoved: number
-  // Output tokens spent on the summary call.
-  summaryTokens: number
+  // Tokens spent on the summary LLM call. inputTokens covers the prefix
+  // that was summarized; outputTokens covers the summary text itself. Both
+  // matter for cost attribution — neither is derivable from the other.
+  summaryUsage: Usage
 }
 
 export type SystemMessage = {
