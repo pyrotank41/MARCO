@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish
 
 on:
   push:
@@ -9,8 +9,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: write    # for the GitHub Release step below
+      id-token: write    # for npm OIDC trusted publisher
+      packages: write    # for GitHub Packages mirror
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,4 +37,32 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
             exit 1
           fi
-      - run: npm publish --provenance --access public
+
+      # Primary registry: npmjs.com (canonical, what `npm install marco-harness`
+      # resolves to). Provenance signs the build via OIDC.
+      - name: Publish to npmjs.com
+        run: npm publish --provenance --access public
+
+      # Mirror: GitHub Packages. Same source, different name (GH Packages
+      # requires scoped names matching the owner). Shows up under the repo's
+      # "Packages" sidebar. Consumers normally install from npmjs; this
+      # mirror is for archival + GitHub-native discovery.
+      - name: Publish to GitHub Packages mirror
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # GH Packages npm registry requires scoped names.
+          npm pkg set name="@pyrotank41/marco-harness"
+          # GitHub registry doesn't accept --provenance — the primary publish
+          # already signed it on npmjs. Publish the same artifact under the
+          # scoped name with token auth.
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          npm publish --registry=https://npm.pkg.github.com --access public
+
+      # Auto-generate a GitHub Release for this tag so the repo's
+      # /releases page reflects the publish history.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
