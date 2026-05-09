@@ -23,10 +23,18 @@ export type ChunkEvent =
   | { type: 'tool_call_end'; id: string }
   | { type: 'message_end'; message: AssistantMessage }
 
+export type StreamOptions = {
+  /** Cancel the in-flight model call. Forwarded to the underlying fetch
+   *  (or SDK) so the HTTP request is aborted mid-stream — saving tokens
+   *  and stopping events from being yielded further. */
+  signal?: AbortSignal
+}
+
 export interface ModelProvider {
   stream(
     messages: Message[],
     tools: ToolSpec[],
     config: ModelConfig,
+    options?: StreamOptions,
   ): AsyncIterable<ChunkEvent>
 }

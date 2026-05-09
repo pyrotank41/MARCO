@@ -47,8 +47,9 @@ export class Harness {
     return this.toolRegistry.get(name)
   }
 
-  async run(trigger: Trigger): Promise<RunInnerLoopResult> {
+  async run(trigger: Trigger, options?: { signal?: AbortSignal }): Promise<RunInnerLoopResult> {
     const runId = randomUUID()
+    const signal = options?.signal
 
     const triggerMessages = triggerToMessages(trigger)
     let messages: Message[] = [...this.initialMessages, ...triggerMessages]
@@ -82,10 +83,11 @@ export class Harness {
       messages,
       provider: this.provider,
       toolSpecs: this.toolRegistry.toSpecs(),
-      requestToolCall: (call) => this.handleToolCall(call, runId),
+      requestToolCall: (call, opts) => this.handleToolCall(call, runId, opts?.signal),
       hooks: { beforeModelCall: this.hooks.beforeModelCall },
       modelConfig,
       maxIterations: this.maxIterations,
+      signal,
     })
 
     await runHook(this.hooks.onRunEnd, {
@@ -111,7 +113,7 @@ export class Harness {
    * Errors (validation, handler throws, unknown tool) become error
    * ToolResultMessage objects so the model can see and react.
    */
-  private async handleToolCall(call: ToolCall, runId: string): Promise<ToolResultMessage> {
+  private async handleToolCall(call: ToolCall, runId: string, abortSignal?: AbortSignal): Promise<ToolResultMessage> {
     const harnessDecision = await runHook(this.hooks.beforeToolCall, { toolCall: call, runId })
 
     // Short-circuit paths: harness said don't actually execute
@@ -152,7 +154,7 @@ export class Harness {
     let isError = false
     try {
       const validated = tool.validate(effectiveInput)
-      resultContent = await tool.handler(validated, { runId })
+      resultContent = await tool.handler(validated, { runId, abortSignal })
     } catch (err) {
       isError = true
       resultContent = err instanceof Error ? err.message : String(err)

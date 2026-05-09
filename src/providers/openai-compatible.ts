@@ -18,7 +18,7 @@
 // chunk carries prompt_tokens + completion_tokens. Most OpenAI-compatible
 // providers honor this; OpenAI itself, OpenRouter, Together, Groq, all do.
 
-import type { ChunkEvent, ModelConfig, ModelProvider, ToolSpec } from '../provider.js'
+import type { ChunkEvent, ModelConfig, ModelProvider, StreamOptions, ToolSpec } from '../provider.js'
 import type { Message, StopReason, ToolCall } from '../messages.js'
 
 export type OpenAICompatibleProviderOptions = {
@@ -49,7 +49,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.fetchImpl = f
   }
 
-  async *stream(messages: Message[], tools: ToolSpec[], config: ModelConfig): AsyncIterable<ChunkEvent> {
+  async *stream(messages: Message[], tools: ToolSpec[], config: ModelConfig, options?: StreamOptions): AsyncIterable<ChunkEvent> {
     const apiMessages = toOpenAIMessages(messages, config.systemPrompt)
     const body: Record<string, unknown> = {
       model: config.model,
@@ -74,6 +74,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         ...this.headers,
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     })
 
     if (!res.ok) throw new Error(`OpenAI-compatible HTTP ${res.status}: ${await res.text()}`)
