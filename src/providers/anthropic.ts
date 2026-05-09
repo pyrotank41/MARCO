@@ -12,22 +12,25 @@
 // ChunkEvent when `message_stop` fires.
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { ChunkEvent, ModelConfig, ModelProvider, ToolSpec } from '../provider.js'
+import type { ChunkEvent, ModelConfig, ModelProvider, StreamOptions, ToolSpec } from '../provider.js'
 import type { Message, StopReason, ToolCall } from '../messages.js'
 
 export interface AnthropicMessagesClient {
   messages: {
-    stream(args: {
-      model: string
-      max_tokens: number
-      temperature?: number
-      system?: string
-      messages: Array<{
-        role: 'user' | 'assistant'
-        content: unknown
-      }>
-      tools?: Array<{ name: string; description: string; input_schema: unknown }>
-    }): AsyncIterable<unknown>
+    stream(
+      args: {
+        model: string
+        max_tokens: number
+        temperature?: number
+        system?: string
+        messages: Array<{
+          role: 'user' | 'assistant'
+          content: unknown
+        }>
+        tools?: Array<{ name: string; description: string; input_schema: unknown }>
+      },
+      options?: { signal?: AbortSignal },
+    ): AsyncIterable<unknown>
   }
 }
 
@@ -57,21 +60,27 @@ export class AnthropicProvider implements ModelProvider {
     messages: Message[],
     tools: ToolSpec[],
     config: ModelConfig,
+    options?: StreamOptions,
   ): AsyncIterable<ChunkEvent> {
     const { system, apiMessages } = toAnthropicMessages(messages, config.systemPrompt)
 
-    const sdkStream = this.client.messages.stream({
-      model: config.model,
-      max_tokens: config.maxTokens ?? 4096,
-      temperature: config.temperature,
-      system,
-      messages: apiMessages,
-      tools: tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.inputSchema,
-      })),
-    })
+    // Forward the signal to the Anthropic SDK so the underlying HTTP
+    // request is aborted mid-stream when the caller cancels.
+    const sdkStream = this.client.messages.stream(
+      {
+        model: config.model,
+        max_tokens: config.maxTokens ?? 4096,
+        temperature: config.temperature,
+        system,
+        messages: apiMessages,
+        tools: tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.inputSchema,
+        })),
+      },
+      options?.signal ? { signal: options.signal } : undefined,
+    )
 
     let accumulatedText: string | undefined
     const accumulatedToolCalls: ToolCall[] = []
