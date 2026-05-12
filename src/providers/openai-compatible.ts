@@ -19,7 +19,7 @@
 // providers honor this; OpenAI itself, OpenRouter, Together, Groq, all do.
 
 import type { ChunkEvent, ModelConfig, ModelProvider, StreamOptions, ToolSpec } from '../provider.js'
-import type { Message, StopReason, ToolCall } from '../messages.js'
+import type { Message, StopReason, ToolCall, UserMessageContentPart } from '../messages.js'
 
 export type OpenAICompatibleProviderOptions = {
   apiKey?: string
@@ -165,9 +165,13 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
+type OpenAIUserContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 type OpenAIMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string | OpenAIUserContentPart[] }
   | { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   | { role: 'tool'; content: string; tool_call_id: string }
 
@@ -184,7 +188,11 @@ function toOpenAIMessages(messages: Message[], systemPrompt?: string): OpenAIMes
   for (const m of messages) {
     if (m.role === 'system') continue
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.text })
+      if (m.content && m.content.length > 0) {
+        out.push({ role: 'user', content: m.content.map(userPartToOpenAIContent) })
+      } else {
+        out.push({ role: 'user', content: m.text })
+      }
     } else if (m.role === 'assistant') {
       const msg: Extract<OpenAIMessage, { role: 'assistant' }> = {
         role: 'assistant',
@@ -204,6 +212,34 @@ function toOpenAIMessages(messages: Message[], systemPrompt?: string): OpenAIMes
     }
   }
   return out
+}
+
+function userPartToOpenAIContent(part: UserMessageContentPart): OpenAIUserContentPart {
+  // OpenAI Chat Completions supports two user content kinds: `text` and
+  // `image_url`. base64 images ride through `image_url` as data: URLs.
+  // Documents have no native type — we degrade to a brief text mention
+  // so the model at least sees that something was attached. Callers
+  // that need real PDF support should route through Anthropic, or rely
+  // on the runtime's server-side text-extraction (Phase 2 text-bridge)
+  // to inline the document contents as a separate text part.
+  if (part.type === 'text') {
+    return { type: 'text', text: part.text }
+  }
+  if (part.type === 'image') {
+    if (part.source.kind === 'url') {
+      return { type: 'image_url', image_url: { url: part.source.url } }
+    }
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${part.source.mediaType};base64,${part.source.data}` },
+    }
+  }
+  const name = part.source.filename ?? '(unnamed)'
+  const where = part.source.kind === 'url' ? part.source.url : '(inline)'
+  return {
+    type: 'text',
+    text: `[Attached document: ${name} @ ${where} — not natively rendered for this provider]`,
+  }
 }
 
 function mapStopReason(reason: string): StopReason {
