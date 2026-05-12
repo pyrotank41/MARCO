@@ -13,7 +13,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { ChunkEvent, ModelConfig, ModelProvider, StreamOptions, ToolSpec } from '../provider.js'
-import type { Message, StopReason, ToolCall } from '../messages.js'
+import type { Message, StopReason, ToolCall, UserMessageContentPart } from '../messages.js'
 
 export interface AnthropicMessagesClient {
   messages: {
@@ -197,7 +197,14 @@ function toAnthropicMessages(
     if (m.role === 'system') {
       systemParts.push(m.text)
     } else if (m.role === 'user') {
-      apiMessages.push({ role: 'user', content: m.text })
+      if (m.content && m.content.length > 0) {
+        apiMessages.push({
+          role: 'user',
+          content: m.content.map(userPartToAnthropicBlock),
+        })
+      } else {
+        apiMessages.push({ role: 'user', content: m.text })
+      }
     } else if (m.role === 'assistant') {
       const content: Array<Record<string, unknown>> = []
       if (m.text) content.push({ type: 'text', text: m.text })
@@ -223,6 +230,40 @@ function toAnthropicMessages(
   return {
     system: systemParts.length ? systemParts.join('\n\n') : undefined,
     apiMessages,
+  }
+}
+
+function userPartToAnthropicBlock(part: UserMessageContentPart): Record<string, unknown> {
+  // Anthropic's content blocks: { type: 'text' | 'image' | 'document', ... }.
+  // Image source can be { type: 'url' | 'base64', ... }; same for document.
+  // We map our internal `kind: 'url' | 'base64'` onto Anthropic's `type` key.
+  if (part.type === 'text') {
+    return { type: 'text', text: part.text }
+  }
+  if (part.type === 'image') {
+    if (part.source.kind === 'url') {
+      return { type: 'image', source: { type: 'url', url: part.source.url } }
+    }
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: part.source.mediaType,
+        data: part.source.data,
+      },
+    }
+  }
+  // document
+  if (part.source.kind === 'url') {
+    return { type: 'document', source: { type: 'url', url: part.source.url } }
+  }
+  return {
+    type: 'document',
+    source: {
+      type: 'base64',
+      media_type: part.source.mediaType,
+      data: part.source.data,
+    },
   }
 }
 

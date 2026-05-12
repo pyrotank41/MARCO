@@ -1,10 +1,18 @@
 // MARCO — lifecycle hook types and runner. Five hooks map 1:1 to nodes in the outer-loop diagram.
 
-import type { Message, AssistantMessage, ToolCall, ToolResultMessage } from './messages.js'
+import type { Message, AssistantMessage, ToolCall, ToolResultMessage, UserMessageContentPart } from './messages.js'
 import type { ModelConfig } from './provider.js'
 
 export type Trigger =
-  | { kind: 'user_message'; text: string; metadata?: Record<string, unknown> }
+  | {
+      kind: 'user_message'
+      text: string
+      // Optional multimodal payload. Forwarded onto the synthesized
+      // UserMessage.content. When set, providers render multipart
+      // (images, documents) natively for capable models.
+      content?: UserMessageContentPart[]
+      metadata?: Record<string, unknown>
+    }
   | { kind: 'schedule'; cron: string; metadata?: Record<string, unknown> }
   | { kind: 'event'; eventType: string; payload: unknown }
   | { kind: 'webhook'; path: string; payload: unknown }

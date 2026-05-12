@@ -32,6 +32,7 @@ export type {
   SystemMessage,
   MessageMeta,
   UserMessage,
+  UserMessageContentPart,
   AssistantMessage,
   ToolResultMessage,
   ToolCall,

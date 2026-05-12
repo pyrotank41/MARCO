@@ -181,7 +181,15 @@ export class Harness {
 function triggerToMessages(trigger: Trigger): Message[] {
   switch (trigger.kind) {
     case 'user_message':
-      return [{ role: 'user', text: trigger.text }]
+      return [
+        {
+          role: 'user',
+          text: trigger.text,
+          ...(trigger.content && trigger.content.length > 0
+            ? { content: trigger.content }
+            : {}),
+        },
+      ]
     case 'schedule':
       return [{ role: 'user', text: `[scheduled trigger: ${trigger.cron}]` }]
     case 'event':

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type {
-  Message, SystemMessage, UserMessage, AssistantMessage, ToolResultMessage,
+  Message, SystemMessage, UserMessage, UserMessageContentPart,
+  AssistantMessage, ToolResultMessage,
   MessageMeta, ToolCall, StopReason,
 } from '../src/messages.js'
 
@@ -35,6 +36,25 @@ describe('messages', () => {
   it('StopReason is a finite union', () => {
     const reasons: StopReason[] = ['end_turn', 'tool_use', 'max_tokens', 'safety', 'error']
     expect(reasons).toHaveLength(5)
+  })
+
+  describe('UserMessageContentPart — multimodal payload', () => {
+    it('supports text, image (url/base64), and document (url/base64) variants', () => {
+      const parts: UserMessageContentPart[] = [
+        { type: 'text', text: 'describe this' },
+        { type: 'image', source: { kind: 'url', url: 'https://x/y.png', mediaType: 'image/png' } },
+        { type: 'image', source: { kind: 'base64', mediaType: 'image/png', data: 'AAAA' } },
+        { type: 'document', source: { kind: 'url', url: 'https://x/d.pdf', filename: 'd.pdf' } },
+        { type: 'document', source: { kind: 'base64', mediaType: 'application/pdf', data: 'BBBB', filename: 'd.pdf' } },
+      ]
+      const user: UserMessage = { role: 'user', text: '(see attachments)', content: parts }
+      expect(user.content).toHaveLength(5)
+    })
+
+    it('UserMessage.content is optional — text-only construction still compiles', () => {
+      const user: UserMessage = { role: 'user', text: 'hi' }
+      expect(user.content).toBeUndefined()
+    })
   })
 
   describe('MessageMeta — opaque passthrough slot on every message', () => {

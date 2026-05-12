@@ -37,9 +37,40 @@ export type SystemMessage = {
   meta?: MessageMeta
 }
 
+// Multimodal content parts. When `UserMessage.content` is set, providers
+// emit a native multi-part payload (Anthropic content blocks, OpenAI
+// content arrays). Otherwise they fall back to `text`. `text` stays
+// required so consumers that ignore the multimodal API still see a
+// non-null transcript — set it to a brief textual summary or "" when
+// content carries everything.
+//
+// Three part kinds, each with a URL form (provider fetches) and a
+// base64 form (caller pre-fetched the bytes). Document parts are
+// natively supported by Anthropic; OpenAI-compatible providers fall
+// back to a text mention since Chat Completions has no document type.
+export type UserMessageContentPart =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image'
+      source:
+        | { kind: 'url'; url: string; mediaType?: string }
+        | { kind: 'base64'; mediaType: string; data: string }
+    }
+  | {
+      type: 'document'
+      source:
+        | { kind: 'url'; url: string; mediaType?: string; filename?: string }
+        | { kind: 'base64'; mediaType: string; data: string; filename?: string }
+    }
+
 export type UserMessage = {
   role: 'user'
   text: string
+  // Optional multi-part content. When present, providers render this as
+  // the native multimodal payload for the model; `text` becomes the
+  // transcript-facing fallback. Absent (the common case) means
+  // text-only.
+  content?: UserMessageContentPart[]
   meta?: MessageMeta
 }
 
